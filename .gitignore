@@ -1,3 +1,16 @@
+# Project data directories (keep .gitkeep files)
+data/raw/*
+data/clean/*
+data/mart/*
+data/app/*
+!data/**/.gitkeep
+
+# Tableau workbook binaries
+tableau/workbook/*.twbx
+
+# macOS
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
