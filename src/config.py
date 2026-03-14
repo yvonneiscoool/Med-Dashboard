@@ -31,3 +31,7 @@ DATE_END = "2025-12-31"
 API_RATE_LIMIT = 240  # requests/min with API key
 API_RATE_LIMIT_NO_KEY = 120  # requests/min without key
 MAX_RETRIES = 3
+
+# ── Patient outcome codes ─────────────────────────────────────────────────────
+OUTCOME_DEATH = {"D"}
+OUTCOME_SERIOUS_INJURY = {"L", "H", "S"}
