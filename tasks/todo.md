@@ -24,3 +24,19 @@
 - [x] Source validation notebook (`notebooks/01_source_validation.ipynb`)
 - [x] Full extraction notebook (`notebooks/02_data_extraction.ipynb`)
 - [x] All 27 tests passing, lint clean
+
+## Phase 2: Cleaning & Core Dimensions
+- [x] Outcome code constants in `src/config.py`
+- [x] QA module — `src/qa/checks.py` with QAResult, 7 check functions, run_checks
+- [x] QA module tests — 22 tests (`tests/test_qa_checks.py`)
+- [x] QA module re-exports (`src/qa/__init__.py`)
+- [x] Classification dimension builder — `src/cleaning/classification.py`
+- [x] Classification tests — 7 tests (`tests/test_cleaning_classification.py`)
+- [x] Adverse event cleaner — `src/cleaning/adverse_events.py` (ZIP read, flatten, outcomes, dedup, normalize)
+- [x] Adverse event tests — 20 tests (`tests/test_cleaning_adverse_events.py`)
+- [x] Cleaning module re-exports (`src/cleaning/__init__.py`)
+- [x] Manufacturer name standardizer — `src/mapping/manufacturer.py` (normalize, cluster, alias)
+- [x] Manufacturer tests — 12 tests (`tests/test_mapping_manufacturer.py`)
+- [x] Mapping module re-exports (`src/mapping/__init__.py`)
+- [x] Event cleaning notebook (`notebooks/03_event_cleaning.ipynb`)
+- [x] All 90 tests passing, lint clean
