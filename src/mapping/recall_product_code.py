@@ -105,7 +105,8 @@ _NOISE_PATTERNS = [
     # Lot numbers
     re.compile(r"Lot\s*(?:Number|No\.?|#)\s*:?\s*\S+", re.IGNORECASE),
     # Dimensions: 2.5-3.9x124mm, 2.5x3.9mm, 15mm, 0.75ml, etc.
-    re.compile(r"\d+\.?\d*(?:\s*[-x×]\s*\d+\.?\d*)+\s*(?:mm|cm|ml|cc|g)\b", re.IGNORECASE),
+    # No spaces around separator to avoid catastrophic backtracking on long number lists
+    re.compile(r"\d+\.?\d*(?:[-x×]\d+\.?\d*)+\s*(?:mm|cm|ml|cc|g)\b", re.IGNORECASE),
     re.compile(r"\b\d+\.?\d*\s*(?:mm|cm|ml|cc)\b", re.IGNORECASE),
     # Standalone alphanumeric codes (likely part numbers): e.g., BG7045, H78712740000US0
     re.compile(r"\b[A-Z]{1,4}\d[\w.-]*\d\w*\b"),
