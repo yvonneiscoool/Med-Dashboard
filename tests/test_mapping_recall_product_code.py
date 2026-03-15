@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.mapping.recall_product_code import (
     _exact_match,
+    _preprocess_description,
     _text_match,
     map_recall_to_classification,
 )
@@ -279,3 +280,109 @@ def test_map_recall_empty(tmp_path):
     )
     assert len(result) == 0
     assert "mapping_quality" in result.columns
+
+
+# ── _preprocess_description ──────────────────────────────────────────────
+
+
+def test_preprocess_strips_part_numbers():
+    """Part/item/model/catalog numbers are removed."""
+    desc = "Baxter Infusion Pump, Item Number 502015637, Model XR-100"
+    result = _preprocess_description(desc)
+    assert "502015637" not in result
+    assert "XR-100" not in result
+    assert "infusion pump" in result.lower()
+
+
+def test_preprocess_strips_udi():
+    """UDI barcodes are removed."""
+    desc = "NanoClave Manifold UDI: (01)10840619083929(17)220729"
+    result = _preprocess_description(desc)
+    assert "(01)10840619083929" not in result
+    assert "manifold" in result.lower()
+
+
+def test_preprocess_strips_lot_numbers():
+    """Lot numbers are removed."""
+    desc = "Surgical Gown Lot Number: 4496182. Non-Sterile"
+    result = _preprocess_description(desc)
+    assert "4496182" not in result
+    assert "surgical gown" in result.lower()
+
+
+def test_preprocess_strips_dimensions():
+    """Dimensions like 2.5x3.9mm are removed."""
+    desc = "Step Drill 2.5-3.9x124mm, 16mm stop, contra-angle"
+    result = _preprocess_description(desc)
+    assert "2.5-3.9x124mm" not in result
+    assert "drill" in result.lower()
+
+
+def test_preprocess_strips_ref_numbers():
+    """REF/RPN/GPN codes are removed."""
+    desc = "Hip Stem REF (RPN): HNB5.0-38-65-P-NS-RIM REF (GPN): G05979"
+    result = _preprocess_description(desc)
+    assert "HNB5.0-38-65-P-NS-RIM" not in result
+    assert "hip stem" in result.lower()
+
+
+def test_preprocess_empty_and_none():
+    """Empty/None inputs return empty string."""
+    assert _preprocess_description("") == ""
+    assert _preprocess_description(None) == ""
+
+
+# ── _text_match with preprocessing and token_set_ratio ───────────────────
+
+
+def test_text_match_long_description():
+    """Long product description with noise should match device name via token_set_ratio."""
+    recall_df = _make_recall_df(
+        [
+            {
+                "product_code": None,
+                "product_description": (
+                    "Baxter SIGMA Spectrum Infusion Pump with Master Drug Library "
+                    "(Version 8.x), Model# 35700BAX2, PN 1056490. "
+                    "Product Usage: For clinical infusion therapy."
+                ),
+            }
+        ]
+    )
+    device_names = ["Pump, Infusion", "Catheter, Intravascular", "Monitor, Blood Pressure"]
+    name_to_code = {
+        "Pump, Infusion": "FRN",
+        "Catheter, Intravascular": "DQY",
+        "Monitor, Blood Pressure": "DXN",
+    }
+
+    results = _text_match(recall_df, device_names, name_to_code, 85, 60)
+    assert len(results) == 1
+    result = list(results.values())[0]
+    assert result["matched_code"] == "FRN"
+
+
+def test_text_match_imaging_system():
+    """MRI system description matches NMR imaging device name."""
+    recall_df = _make_recall_df(
+        [
+            {
+                "product_code": None,
+                "product_description": ("SIGNA Voyager, Nuclear Magnetic Resonance Imaging System"),
+            }
+        ]
+    )
+    device_names = [
+        "System, Nuclear Magnetic Resonance Imaging",
+        "Pump, Infusion",
+    ]
+    name_to_code = {
+        "System, Nuclear Magnetic Resonance Imaging": "LNH",
+        "Pump, Infusion": "FRN",
+    }
+
+    results = _text_match(recall_df, device_names, name_to_code, 85, 60)
+    assert len(results) == 1
+    result = list(results.values())[0]
+    assert result["matched_code"] == "LNH"
+    assert result["tier"] == "high_confidence_text_match"

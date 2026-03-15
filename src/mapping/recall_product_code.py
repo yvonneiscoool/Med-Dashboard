@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -92,6 +93,38 @@ def map_recall_to_classification(
     return recall_df
 
 
+_NOISE_PATTERNS = [
+    # UDI barcodes: (01)12345678901234(17)220729...
+    re.compile(r"\(0[1-9]\)\d{10,}(?:\(\d{2}\)\S+)*"),
+    # REF/RPN/GPN/SKU codes with alphanumeric values (consume multiple tokens)
+    re.compile(r"(?:REF|RPN|GPN|SKU|P/?N|Catalog\s*No\.?)\s*(?:\([^)]*\)\s*:?\s*)?:?\s*\S+", re.IGNORECASE),
+    # Item/Part/Model/Serial number followed by alphanumeric code
+    re.compile(r"(?:Item|Part|Serial)\s*(?:Number|No\.?|#)\s*:?\s*\S+", re.IGNORECASE),
+    # Model number: "Model XR-100", "Model# 123", "Model Number ABC"
+    re.compile(r"Model\s*(?:Number|No\.?|#)?\s*:?\s*\S+", re.IGNORECASE),
+    # Lot numbers
+    re.compile(r"Lot\s*(?:Number|No\.?|#)\s*:?\s*\S+", re.IGNORECASE),
+    # Dimensions: 2.5-3.9x124mm, 2.5x3.9mm, 15mm, 0.75ml, etc.
+    re.compile(r"\d+\.?\d*(?:\s*[-x×]\s*\d+\.?\d*)+\s*(?:mm|cm|ml|cc|g)\b", re.IGNORECASE),
+    re.compile(r"\b\d+\.?\d*\s*(?:mm|cm|ml|cc)\b", re.IGNORECASE),
+    # Standalone alphanumeric codes (likely part numbers): e.g., BG7045, H78712740000US0
+    re.compile(r"\b[A-Z]{1,4}\d[\w.-]*\d\w*\b"),
+    # Version strings: Version 1.13, V1.2.3
+    re.compile(r"(?:Version|Ver\.?|V)\s*\d+[\.\d]*", re.IGNORECASE),
+]
+
+
+def _preprocess_description(desc: str | None) -> str:
+    """Strip noise tokens from product_description to improve fuzzy matching."""
+    if not desc:
+        return ""
+    text = desc
+    for pattern in _NOISE_PATTERNS:
+        text = pattern.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def _exact_match(recall_df: pd.DataFrame, valid_codes: set) -> pd.Series:
     """Return boolean mask where recall's product_code exists in dim_product_code."""
     return recall_df["product_code"].notna() & recall_df["product_code"].isin(valid_codes)
@@ -106,6 +139,11 @@ def _text_match(
 ) -> dict:
     """Match product_description against device_name list via rapidfuzz.
 
+    Uses token_set_ratio scorer which handles subset matching — checking
+    whether the short device name tokens appear within the longer product
+    description. Descriptions are preprocessed to remove noise tokens
+    (part numbers, UDI codes, dimensions) before matching.
+
     Returns dict of {index: {tier, matched_code, score}}.
     """
     results = {}
@@ -117,10 +155,13 @@ def _text_match(
     for desc in descriptions:
         if not desc:
             continue
+        cleaned = _preprocess_description(desc)
+        if not cleaned:
+            continue
         match = process.extractOne(
-            desc,
+            cleaned,
             device_names,
-            scorer=fuzz.token_sort_ratio,
+            scorer=fuzz.token_set_ratio,
             score_cutoff=low_threshold,
         )
         if match:
