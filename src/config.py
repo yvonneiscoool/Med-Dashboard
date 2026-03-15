@@ -30,6 +30,7 @@ DATE_END = "2025-12-31"
 # ── Rate limiting & retries ────────────────────────────────────────────────────
 API_RATE_LIMIT = 240  # requests/min with API key
 API_RATE_LIMIT_NO_KEY = 120  # requests/min without key
+API_DAILY_LIMIT = 120_000  # max requests per calendar day
 MAX_RETRIES = 3
 
 # ── Patient outcome codes ─────────────────────────────────────────────────────

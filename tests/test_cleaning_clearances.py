@@ -149,6 +149,37 @@ def test_clean_clearances_end_to_end(tmp_path):
     assert "applicant_std" in df.columns
 
 
+def test_date_window_filters_out_of_range_clearances(tmp_path):
+    """Clearances outside the 2019-2025 window should be excluded."""
+    records = [
+        {
+            "k_number": "K180001",
+            "decision_date": "2018-03-15",
+            "product_code": "ABC",
+            "applicant": "ACME INC",
+            "advisory_committee": "SU",
+            "clearance_type": "Traditional",
+            "decision_code": "SESE",
+        },
+        {
+            "k_number": "K200002",
+            "decision_date": "2020-06-01",
+            "product_code": "DEF",
+            "applicant": "ACME INC",
+            "advisory_committee": "CV",
+            "clearance_type": "Traditional",
+            "decision_code": "SESE",
+        },
+    ]
+    input_dir = tmp_path / "clearances" / "all"
+    input_dir.mkdir(parents=True)
+    (input_dir / "clearances_all.json").write_text(json.dumps(records))
+    output_path = tmp_path / "clean_510k.parquet"
+    df = clean_clearances(input_dir=tmp_path / "clearances", output_path=output_path)
+    assert len(df) == 1
+    assert df.iloc[0]["k_number"] == "K200002"
+
+
 def test_clean_clearances_empty(tmp_path):
     """Empty input produces empty parquet with correct schema."""
     input_dir = tmp_path / "empty"

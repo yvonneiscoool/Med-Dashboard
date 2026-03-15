@@ -10,6 +10,15 @@ from src.api.client import MAX_API_RESULTS, FDAClient
 from src.api.exceptions import FDAApiError, PartitionTooLargeError, RateLimitExceeded
 
 
+def _mock_response(status_code: int, json_data: dict) -> MagicMock:
+    """Create a mock requests.Response with given status and JSON body."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data
+    resp.raise_for_status.return_value = None
+    return resp
+
+
 class TestRateLimiting:
     def test_rate_limit_allows_requests_under_limit(self, fda_client):
         """Requests under the rate limit should proceed without delay."""
@@ -255,3 +264,40 @@ class TestCombineSearch:
         """Single clause should be returned as-is."""
         result = FDAClient.combine_search("field1:value1")
         assert result == "field1:value1"
+
+
+class TestDailyRateLimit:
+    def test_daily_rate_limit_raises_when_exceeded(self, fda_client):
+        """Client should raise RateLimitExceeded when daily limit is hit."""
+        fda_client.daily_limit = 3
+        fda_client._daily_request_count = 3
+        with pytest.raises(RateLimitExceeded, match="Daily"):
+            fda_client._check_daily_limit()
+
+    def test_daily_rate_limit_resets_after_midnight(self, fda_client):
+        """Daily counter should reset when the date changes."""
+        fda_client.daily_limit = 5
+        fda_client._daily_request_count = 5
+        fda_client._daily_reset_date = "2026-03-13"
+        fda_client._check_daily_limit()
+        assert fda_client._daily_request_count == 0
+
+
+class TestFetchCountBy:
+    def test_fetch_count_by_returns_term_counts(self, fda_client, mock_session):
+        """fetch_count_by should return list of {term, count} dicts."""
+        mock_session.get.return_value = _mock_response(
+            200,
+            {
+                "results": [
+                    {"term": "SU", "count": 15000},
+                    {"term": "CV", "count": 12000},
+                    {"term": "OR", "count": 8000},
+                ]
+            },
+        )
+        result = fda_client.fetch_count_by("/device/510k.json", field="advisory_committee")
+        assert len(result) == 3
+        assert result[0] == {"term": "SU", "count": 15000}
+        call_params = mock_session.get.call_args[1]["params"]
+        assert call_params["count"] == "advisory_committee"

@@ -3,43 +3,28 @@
 import logging
 
 from src.api.client import FDAClient
-from src.config import DATA_RAW, DATE_END, DATE_START, ENDPOINT_510K
+from src.config import DATA_RAW, ENDPOINT_510K
 from src.extraction.base import BaseExtractor
 
 logger = logging.getLogger(__name__)
 
-PARTITION_THRESHOLD = 25000
+MAX_SINGLE_QUERY = 26000
 
 
 class ClearanceExtractor(BaseExtractor):
-    """Extract 510(k) clearance records from openFDA, partitioned by year."""
+    """Extract 510(k) clearance records from openFDA without date filtering.
+
+    If the total record count exceeds the API pagination limit (26K),
+    partitions by advisory_committee to keep each query under the limit.
+    Date filtering is deferred to the cleaning step.
+    """
 
     def __init__(self, client: FDAClient | None = None):
         client = client or FDAClient()
         super().__init__(client, DATA_RAW / "clearances")
 
-    def _build_search(self, start: str, end: str) -> str:
-        """Build search query with decision_date range."""
-        return self.client.date_range_search("decision_date", start, end)
-
-    def _extract_partition(self, start: str, end: str, label: str) -> list[dict]:
-        """Extract a single date partition, auto-splitting if too large."""
-        search = self._build_search(start, end)
-        count = self.client.fetch_count(ENDPOINT_510K, search=search)
-        logger.info("Partition %s: %d records", label, count)
-
-        if count > PARTITION_THRESHOLD:
-            year = int(start[:4])
-            logger.warning("Partition %s has %d records, splitting by quarter", label, count)
-            all_results = []
-            for q_idx, (q_start, q_end) in enumerate(self._partition_by_quarter(year), 1):
-                q_results = self._extract_partition(q_start, q_end, f"{label}-Q{q_idx}")
-                all_results.extend(q_results)
-            return all_results
-
-        if count == 0:
-            return []
-
+    def _fetch_partition(self, search: str | None, label: str) -> list[dict]:
+        """Fetch all pages for a single partition (search filter + label)."""
         return self.client.fetch_all_pages(
             endpoint=ENDPOINT_510K,
             search=search,
@@ -48,39 +33,50 @@ class ClearanceExtractor(BaseExtractor):
             progress_file=self.output_dir / label / "_page_progress.json",
         )
 
+    def _extract_by_committee(self) -> list[dict]:
+        """Partition by advisory_committee when total exceeds 26K."""
+        committees = self.client.fetch_count_by(ENDPOINT_510K, field="advisory_committee")
+        logger.info("Found %d advisory committees for partitioning", len(committees))
+
+        all_results = []
+        for entry in committees:
+            term = entry["term"]
+            count = entry["count"]
+            logger.info("Committee %s: %d records", term, count)
+
+            search = f'advisory_committee:"{term}"'
+            results = self._fetch_partition(search, f"committee_{term}")
+            all_results.extend(results)
+
+        return all_results
+
     def extract(self) -> dict:
-        """Extract 510(k) clearance data for each year in the time window."""
+        """Fetch all 510(k) clearance records without date filters.
+
+        Automatically partitions by advisory_committee if total > 26K.
+        Date-window filtering is applied in the cleaning step.
+        """
         progress = self._load_progress()
-        start_year = int(DATE_START[:4])
-        end_year = int(DATE_END[:4])
 
-        summary = {"years": {}, "total_records": 0}
+        if progress.get("status") == "complete":
+            logger.info("Clearance extraction already complete, skipping")
+            return {"total_records": progress.get("total_records", 0)}
 
-        for year_start, year_end in self._partition_by_year(start_year, end_year):
-            year = year_start[:4]
+        total = self.client.fetch_count(ENDPOINT_510K)
+        logger.info("Total 510(k) clearances (no date filter): %d records", total)
 
-            if progress.get("years", {}).get(year, {}).get("status") == "complete":
-                logger.info("Year %s already complete, skipping", year)
-                year_count = progress["years"][year]["records"]
-                summary["years"][year] = {"records": year_count}
-                summary["total_records"] += year_count
-                continue
+        if total > MAX_SINGLE_QUERY:
+            logger.info("Total exceeds %d, partitioning by advisory_committee", MAX_SINGLE_QUERY)
+            results = self._extract_by_committee()
+        else:
+            results = self._fetch_partition(search=None, label="all")
 
-            logger.info("Extracting 510(k) clearances for %s", year)
-            results = self._extract_partition(year_start, year_end, year)
+        # Save combined output
+        out_dir = self.output_dir / "all"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        self._save_raw_json(results, "all/clearances_all.json")
 
-            year_dir = self.output_dir / year
-            year_dir.mkdir(parents=True, exist_ok=True)
-            self._save_raw_json(results, f"{year}/clearances_{year}.json")
-
-            summary["years"][year] = {"records": len(results)}
-            summary["total_records"] += len(results)
-
-            progress.setdefault("years", {})[year] = {"status": "complete", "records": len(results)}
-            self._save_progress(progress)
-
-        progress["status"] = "complete"
-        progress["total_records"] = summary["total_records"]
+        progress = {"status": "complete", "total_records": len(results)}
         self._save_progress(progress)
-        logger.info("510(k) extraction complete: %d total records", summary["total_records"])
-        return summary
+        logger.info("510(k) extraction complete: %d total records", len(results))
+        return {"total_records": len(results)}
