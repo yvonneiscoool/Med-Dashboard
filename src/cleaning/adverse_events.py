@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import json
+import logging
 import zipfile
 from pathlib import Path
 
 import pandas as pd
+from tqdm import tqdm
 
 from src.config import DATA_CLEAN, DATA_RAW, OUTCOME_DEATH, OUTCOME_SERIOUS_INJURY
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_INPUT_DIR = DATA_RAW / "adverse_events" / "bulk"
 _DEFAULT_OUTPUT = DATA_CLEAN / "clean_event_device_level.parquet"
-
 
 def clean_adverse_events(
     input_dir: str | Path | None = None,
     output_path: str | Path | None = None,
 ) -> pd.DataFrame:
     """Clean adverse events from raw ZIP files into device-level parquet.
+
+    Processes each ZIP individually to control memory usage. Each file's
+    records are flattened into DataFrames before discarding raw dicts.
 
     Args:
         input_dir: Directory containing ZIP files. Defaults to standard location.
@@ -30,33 +36,53 @@ def clean_adverse_events(
     input_dir = Path(input_dir) if input_dir else _DEFAULT_INPUT_DIR
     output_path = Path(output_path) if output_path else _DEFAULT_OUTPUT
 
-    # Read all ZIP files
-    all_records = []
-    for zip_path in sorted(input_dir.glob("*.zip")):
-        all_records.extend(_read_zip_json(zip_path))
-
-    if not all_records:
-        # Return empty DataFrame with correct schema
+    zip_files = sorted(input_dir.glob("*.zip"))
+    if not zip_files:
         df = pd.DataFrame(columns=_OUTPUT_COLUMNS)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output_path, index=False)
         return df
 
-    # Aggregate patient outcomes (report-level)
-    outcomes = _aggregate_patient_outcomes(all_records)
+    logger.info("Processing %d ZIP files", len(zip_files))
 
-    # Flatten devices (device-level rows)
-    df = _flatten_devices(all_records)
+    device_chunks: list[pd.DataFrame] = []
+    outcome_chunks: list[pd.DataFrame] = []
 
-    if df.empty:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+    for zip_path in tqdm(zip_files, desc="Reading adverse event ZIPs"):
+        records = _read_zip_json(zip_path)
+        if not records:
+            continue
+
+        dev_df = _flatten_devices(records)
+        if not dev_df.empty:
+            device_chunks.append(dev_df)
+
+        out_df = _aggregate_patient_outcomes(records)
+        if not out_df.empty:
+            outcome_chunks.append(out_df)
+
+        # Records are discarded here — no longer held in memory
+
+    if not device_chunks:
         df = pd.DataFrame(columns=_OUTPUT_COLUMNS)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(output_path, index=False)
         return df
 
-    # Merge outcomes onto device rows
-    if not outcomes.empty:
+    logger.info("Concatenating %d device chunks", len(device_chunks))
+    df = pd.concat(device_chunks, ignore_index=True)
+    del device_chunks
+
+    if outcome_chunks:
+        outcomes = pd.concat(outcome_chunks, ignore_index=True)
+        del outcome_chunks
+        # A report can span multiple ZIPs; aggregate with OR
+        outcomes = outcomes.groupby("mdr_report_key", as_index=False).agg(
+            {"has_death": "max", "has_serious_injury": "max"}
+        )
         df = df.merge(outcomes, on="mdr_report_key", how="left")
+        del outcomes
+
     for col in ("has_death", "has_serious_injury"):
         if col not in df.columns:
             df[col] = False
@@ -194,10 +220,7 @@ def _aggregate_patient_outcomes(records: list[dict]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(columns=["mdr_report_key", "has_death", "has_serious_injury"])
 
-    df = pd.DataFrame(rows)
-    # A report can appear multiple times in raw data; aggregate with OR
-    df = df.groupby("mdr_report_key", as_index=False).agg({"has_death": "max", "has_serious_injury": "max"})
-    return df
+    return pd.DataFrame(rows)
 
 
 def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
