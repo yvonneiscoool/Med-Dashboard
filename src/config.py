@@ -27,6 +27,10 @@ ENDPOINT_510K = "/device/510k.json"
 DATE_START = "2019-01-01"
 DATE_END = "2025-12-31"
 
+# ── Analysis year range (for mart view filtering) ─────────────────────────────
+ANALYSIS_YEAR_MIN = 2019
+ANALYSIS_YEAR_MAX = 2025
+
 # ── Rate limiting & retries ────────────────────────────────────────────────────
 API_RATE_LIMIT = 240  # requests/min with API key
 API_RATE_LIMIT_NO_KEY = 120  # requests/min without key

@@ -202,6 +202,33 @@ class TestExportMethodology:
         assert "recalls" in sources
         assert "clearances" in sources
 
+    def test_enriched_metrics(self, built_data):
+        df = export_app_methodology(
+            events_path=built_data["clean_dir"] / "clean_event_device_level.parquet",
+            recalls_path=built_data["clean_dir"] / "clean_recall.parquet",
+            clearances_path=built_data["clean_dir"] / "clean_510k.parquet",
+            dim_product_code_path=built_data["clean_dir"] / "dim_product_code.parquet",
+            output_path=built_data["app_dir"] / "app_methodology.csv",
+        )
+        metrics = set(df["metric"].unique())
+        expected = {
+            "raw_count",
+            "dedup_count",
+            "duplicate_rate_pct",
+            "missing_product_code_pct",
+            "manufacturer_fill_rate_pct",
+            "mapping_quality_exact",
+            "mapping_quality_high",
+            "mapping_quality_low",
+            "mapping_quality_unmapped",
+            "core_dashboard_coverage_pct",
+            "year_min",
+            "year_max",
+        }
+        assert expected.issubset(metrics), f"Missing metrics: {expected - metrics}"
+        # All values should be non-null
+        assert df["value"].notna().all()
+
 
 class TestExportAll:
     def test_returns_four_tables(self, built_data):
