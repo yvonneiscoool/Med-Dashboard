@@ -1,5 +1,6 @@
 """FDA openFDA API client with rate limiting, retry, pagination, and caching."""
 
+import datetime
 import json
 import logging
 import time
@@ -9,7 +10,7 @@ from pathlib import Path
 import requests
 
 from src.api.exceptions import FDAApiError, PartitionTooLargeError, RateLimitExceeded
-from src.config import API_RATE_LIMIT, API_RATE_LIMIT_NO_KEY, FDA_API_KEY, FDA_BASE_URL, MAX_RETRIES
+from src.config import API_DAILY_LIMIT, API_RATE_LIMIT, API_RATE_LIMIT_NO_KEY, FDA_API_KEY, FDA_BASE_URL, MAX_RETRIES
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,23 @@ class FDAClient:
         self.base_url = FDA_BASE_URL
         self._request_timestamps: deque[float] = deque()
         self._session = requests.Session()
+        self.daily_limit = API_DAILY_LIMIT
+        self._daily_request_count = 0
+        self._daily_reset_date = str(datetime.date.today())
+
+    # ── Daily Rate Limiting ──────────────────────────────────────────────────
+
+    def _check_daily_limit(self) -> None:
+        """Reset daily counter if date changed; raise if daily limit reached."""
+        today = str(datetime.date.today())
+        if today != self._daily_reset_date:
+            self._daily_request_count = 0
+            self._daily_reset_date = today
+        if self._daily_request_count >= self.daily_limit:
+            raise RateLimitExceeded(
+                f"Daily API request limit ({self.daily_limit}) reached. Try again tomorrow.",
+                status_code=None,
+            )
 
     # ── Rate Limiting ─────────────────────────────────────────────────────────
 
@@ -99,6 +117,7 @@ class FDAClient:
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response:
         """Make a single GET request with rate limiting and retry."""
+        self._check_daily_limit()
         self._wait_for_rate_limit()
 
         def do_request():
@@ -106,7 +125,9 @@ class FDAClient:
             resp.raise_for_status()
             return resp
 
-        return self._retry_with_backoff(do_request)
+        resp = self._retry_with_backoff(do_request)
+        self._daily_request_count += 1
+        return resp
 
     # ── Pagination ────────────────────────────────────────────────────────────
 
@@ -126,6 +147,27 @@ class FDAClient:
         """Quick total count for a query (single request, limit=1)."""
         data = self.fetch_page(endpoint, search=search, skip=0, limit=1)
         return data.get("meta", {}).get("results", {}).get("total", 0)
+
+    def fetch_count_by(self, endpoint: str, field: str, search: str | None = None) -> list[dict]:
+        """Return distinct values and counts for a field using openFDA count API."""
+        url = f"{self.base_url}{endpoint}"
+        params = {"count": field, "limit": 1000}
+        if self.api_key:
+            params["api_key"] = self.api_key
+        if search:
+            params["search"] = search
+        self._check_daily_limit()
+        self._wait_for_rate_limit()
+
+        def do_request():
+            resp = self._session.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            return resp
+
+        resp = self._retry_with_backoff(do_request)
+        self._daily_request_count += 1
+        data = resp.json()
+        return data.get("results", [])
 
     def fetch_all_pages(
         self,
