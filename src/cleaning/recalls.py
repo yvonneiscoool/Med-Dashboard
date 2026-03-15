@@ -12,6 +12,7 @@ from src.config import DATA_CLEAN, DATA_RAW, DATE_END, DATE_START
 
 _DEFAULT_INPUT_DIR = DATA_RAW / "recalls"
 _DEFAULT_OUTPUT = DATA_CLEAN / "clean_recall.parquet"
+_DEFAULT_RECALL_PC_DIR = DATA_RAW / "recall_product_codes"
 
 _OUTPUT_COLUMNS = [
     "recall_number",
@@ -32,6 +33,7 @@ _RECALL_CLASS_RE = re.compile(r"Class\s+(I{1,3})")
 def clean_recalls(
     input_dir: str | Path | None = None,
     output_path: str | Path | None = None,
+    recall_pc_dir: str | Path | None = None,
 ) -> pd.DataFrame:
     """Clean recall/enforcement data from raw JSON files into parquet.
 
@@ -58,6 +60,10 @@ def clean_recalls(
 
     # Extract fields
     df = _extract_fields(all_records)
+
+    # Enrich product_code from /device/recall.json lookup
+    pc_dir = Path(recall_pc_dir) if recall_pc_dir else _DEFAULT_RECALL_PC_DIR
+    df = _enrich_product_code(df, pc_dir)
 
     if df.empty:
         df = pd.DataFrame(columns=_OUTPUT_COLUMNS)
@@ -98,6 +104,40 @@ def _read_year_json(json_path: Path) -> list[dict]:
     if isinstance(data, list):
         return data
     return []
+
+
+def _load_recall_pc_lookup(recall_pc_dir: Path) -> dict[str, str]:
+    """Load product_res_number -> product_code mapping from recall API data."""
+    lookup: dict[str, str] = {}
+    for json_path in sorted(recall_pc_dir.glob("**/recall_product_codes_*.json")):
+        with open(json_path) as f:
+            records = json.load(f)
+        if isinstance(records, dict):
+            records = records.get("results", [])
+        for rec in records:
+            res_num = rec.get("product_res_number")
+            pc = rec.get("product_code")
+            if res_num and pc:
+                lookup[res_num] = pc.rstrip("-")
+    return lookup
+
+
+def _enrich_product_code(df: pd.DataFrame, recall_pc_dir: Path) -> pd.DataFrame:
+    """Fill missing product_code using /device/recall.json lookup.
+
+    Only fills rows where product_code is null (preserves openfda values).
+    """
+    if not recall_pc_dir.exists():
+        return df
+
+    lookup = _load_recall_pc_lookup(recall_pc_dir)
+    if not lookup:
+        return df
+
+    df = df.copy()
+    missing_mask = df["product_code"].isna()
+    df.loc[missing_mask, "product_code"] = df.loc[missing_mask, "recall_number"].map(lookup)
+    return df
 
 
 def _extract_product_code(record: dict) -> str | None:
