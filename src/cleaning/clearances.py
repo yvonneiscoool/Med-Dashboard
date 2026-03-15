@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import DATA_CLEAN, DATA_RAW
+from src.config import DATA_CLEAN, DATA_RAW, DATE_END, DATE_START
 from src.mapping.manufacturer import _normalize_name
 
 _DEFAULT_INPUT_DIR = DATA_RAW / "clearances"
@@ -64,6 +64,11 @@ def clean_clearances(
 
     # Parse dates
     df = _parse_clearance_dates(df)
+
+    # Filter to configured date window
+    start_year = int(DATE_START[:4])
+    end_year = int(DATE_END[:4])
+    df = df[df["decision_year"].between(start_year, end_year)]
 
     # Standardize applicant names
     df = _standardize_applicant(df)
