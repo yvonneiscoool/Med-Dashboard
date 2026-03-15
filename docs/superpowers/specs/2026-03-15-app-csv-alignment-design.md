@@ -47,8 +47,12 @@ The pipeline runs end-to-end and produces four app CSV files, but their content 
     SELECT * FROM read_parquet('{clearances_path}')
     WHERE decision_year BETWEEN {year_min} AND {year_max}
   ```
+- The existing `dim_pc` view registration is preserved unchanged (no year filter needed on dimension table).
 - Each builder function passes the config constants through to `_register_views()`.
 - Individual SQL queries within the builders do not need year filter changes.
+
+**`src/marts/builder.py` — `build_mart_firm_product_year()`:**
+- Currently this function creates its own inline views instead of calling `_register_views()`. Refactor it to use `_register_views()` so it inherits the year filter. Since this builder does not use clearances, make the `clearances_path` parameter optional in `_register_views()` — when `None`, skip creating the clearances view.
 
 **Impact:** All three mart parquets (`mart_panel_year`, `mart_product_code_year`, `mart_firm_product_year`) and all four app CSVs will automatically contain only 2019–2025 data.
 
@@ -64,13 +68,13 @@ Add the following rows to the existing source/metric/value table (existing metri
 |---|---|---|
 | `adverse_events` | `raw_count` | Total rows in clean events parquet |
 | `adverse_events` | `dedup_count` | Rows where `is_latest_version == True` |
-| `adverse_events` | `dedup_rate_pct` | `(1 - dedup/raw) * 100` |
+| `adverse_events` | `duplicate_rate_pct` | `(1 - dedup/raw) * 100` — percentage of records that were duplicates |
 | `adverse_events` | `missing_product_code_pct` | `null product_code / total * 100` |
 | `adverse_events` | `manufacturer_fill_rate_pct` | `non-null manufacturer_d_name / total * 100` |
-| `recalls` | `mapping_quality_exact` | Count where mapping quality is exact match |
-| `recalls` | `mapping_quality_high` | Count where mapping quality is high confidence |
-| `recalls` | `mapping_quality_low` | Count where mapping quality is low confidence |
-| `recalls` | `mapping_quality_unmapped` | Count where unmapped |
+| `recalls` | `mapping_quality_exact` | Count where `mapping_quality == 'exact_product_code_match'` |
+| `recalls` | `mapping_quality_high` | Count where `mapping_quality == 'high_confidence_text_match'` |
+| `recalls` | `mapping_quality_low` | Count where `mapping_quality == 'low_confidence_text_match'` |
+| `recalls` | `mapping_quality_unmapped` | Count where `mapping_quality == 'unmapped'` |
 | `recalls` | `core_dashboard_coverage_pct` | `include_in_core_dashboard / total * 100` |
 | `analysis_window` | `year_min` | 2019 |
 | `analysis_window` | `year_max` | 2025 |
@@ -82,8 +86,7 @@ The function reads from the clean parquets (not the filtered marts) to give full
 **Goal:** Remove blank panel rows from `app_overview`.
 
 **`src/marts/builder.py` — `build_mart_panel_year()`:**
-- Add `AND d.review_panel IS NOT NULL` to the events SQL WHERE clause.
-- The recalls and clearances queries already JOIN on `dim_pc`, so null-panel rows are excluded by the inner join.
+- Add `AND d.review_panel IS NOT NULL` to the events, recalls, and clearances SQL WHERE clauses. The inner join on `product_code` does not exclude rows where `review_panel` is NULL within `dim_pc`, so an explicit filter is needed on all three queries.
 
 **Not affected:** `mart_product_code_year` and `mart_firm_product_year` do not group by panel at their grain, so unmapped-panel events remain captured there.
 
@@ -116,4 +119,5 @@ After implementation, re-run the pipeline and verify:
 4. `app_methodology` contains all specified metrics
 5. Null rates on normalized metrics (events_per_100_clearances, etc.) are substantially reduced
 6. Existing tests pass
-7. Row counts are reasonable (no accidental data loss beyond expected out-of-range filtering)
+7. Add/update unit tests for `export_app_methodology()` asserting all expected metric names are present and values are non-null
+8. Row counts are reasonable (no accidental data loss beyond expected out-of-range filtering)
