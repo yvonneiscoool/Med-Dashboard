@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import DATA_APP, DATA_CLEAN, DATA_MART
+from src.config import ANALYSIS_YEAR_MAX, ANALYSIS_YEAR_MIN, DATA_APP, DATA_CLEAN, DATA_MART
 
 # ── Default paths ─────────────────────────────────────────────────────────────
 _MART_PANEL_YEAR = DATA_MART / "mart_panel_year.parquet"
@@ -159,6 +159,61 @@ def export_app_methodology(
                     "value": round(coverage, 1),
                 }
             )
+
+    # ── Enriched adverse-event quality metrics ────────────────────────────────
+    ae_df = pd.read_parquet(
+        events_path,
+        columns=["is_latest_version", "product_code", "manufacturer_d_name"],
+    )
+    ae_raw = len(ae_df)
+    ae_dedup = int(ae_df["is_latest_version"].sum()) if "is_latest_version" in ae_df.columns else ae_raw
+    rows.append({"source": "adverse_events", "metric": "raw_count", "value": ae_raw})
+    rows.append({"source": "adverse_events", "metric": "dedup_count", "value": ae_dedup})
+    dup_rate = round((1 - ae_dedup / ae_raw) * 100, 1) if ae_raw > 0 else 0.0
+    rows.append({"source": "adverse_events", "metric": "duplicate_rate_pct", "value": dup_rate})
+    missing_pc = ae_df["product_code"].isna().sum() if "product_code" in ae_df.columns else 0
+    rows.append(
+        {
+            "source": "adverse_events",
+            "metric": "missing_product_code_pct",
+            "value": round(missing_pc / ae_raw * 100, 1) if ae_raw > 0 else 0.0,
+        }
+    )
+    mfr_filled = ae_df["manufacturer_d_name"].notna().sum() if "manufacturer_d_name" in ae_df.columns else 0
+    rows.append(
+        {
+            "source": "adverse_events",
+            "metric": "manufacturer_fill_rate_pct",
+            "value": round(mfr_filled / ae_raw * 100, 1) if ae_raw > 0 else 0.0,
+        }
+    )
+
+    # ── Enriched recall mapping-quality metrics ───────────────────────────────
+    rc_df = pd.read_parquet(
+        recalls_path,
+        columns=["mapping_quality", "include_in_core_dashboard"],
+    )
+    rc_total = len(rc_df)
+    for quality_label, metric_name in [
+        ("exact_product_code_match", "mapping_quality_exact"),
+        ("high_confidence_text_match", "mapping_quality_high"),
+        ("low_confidence_text_match", "mapping_quality_low"),
+        ("unmapped", "mapping_quality_unmapped"),
+    ]:
+        count = int((rc_df["mapping_quality"] == quality_label).sum()) if "mapping_quality" in rc_df.columns else 0
+        rows.append({"source": "recalls", "metric": metric_name, "value": count})
+    core_sum = int(rc_df["include_in_core_dashboard"].sum()) if "include_in_core_dashboard" in rc_df.columns else 0
+    rows.append(
+        {
+            "source": "recalls",
+            "metric": "core_dashboard_coverage_pct",
+            "value": round(core_sum / rc_total * 100, 1) if rc_total > 0 else 0.0,
+        }
+    )
+
+    # ── Analysis window constants ─────────────────────────────────────────────
+    rows.append({"source": "analysis_window", "metric": "year_min", "value": ANALYSIS_YEAR_MIN})
+    rows.append({"source": "analysis_window", "metric": "year_max", "value": ANALYSIS_YEAR_MAX})
 
     result = pd.DataFrame(rows)
 
