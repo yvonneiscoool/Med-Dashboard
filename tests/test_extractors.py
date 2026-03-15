@@ -4,12 +4,23 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from src.api.client import FDAClient
 from src.extraction.adverse_events import AdverseEventExtractor
 from src.extraction.classification import ClassificationExtractor
 from src.extraction.clearances import ClearanceExtractor
 from src.extraction.recalls import RecallExtractor
+
+
+def _mock_response(status_code, json_data):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data
+    resp.raise_for_status = MagicMock()
+    if status_code >= 400:
+        resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+    return resp
 
 
 @pytest.fixture
@@ -71,75 +82,92 @@ class TestClassificationExtractor:
 
 
 class TestRecallExtractor:
-    def test_year_partitioning(self, mock_client, tmp_path):
-        """Should extract recalls for each year."""
-        mock_client.fetch_count.return_value = 100
-        mock_client.fetch_all_pages.return_value = [{"recall_number": "Z-0001-2019"}]
+    def test_recall_extractor_fetches_without_date_filter(self, tmp_path, fda_client, sample_api_response):
+        """RecallExtractor should fetch all device recalls without date filters."""
+        fda_client._session.get.return_value = _mock_response(
+            200,
+            sample_api_response(
+                total=2,
+                results=[
+                    {"recall_number": "Z-0001-2020", "product_type": "Devices"},
+                    {"recall_number": "Z-0002-2021", "product_type": "Devices"},
+                ],
+            ),
+        )
 
-        output_dir = tmp_path / "recalls"
+        extractor = RecallExtractor(client=fda_client)
+        extractor.output_dir = tmp_path / "recalls"
+        extractor.output_dir.mkdir()
+        extractor._progress_file = extractor.output_dir / "_progress.json"
 
-        with patch("src.extraction.recalls.DATA_RAW", tmp_path):
-            with patch("src.extraction.recalls.DATE_START", "2019-01-01"):
-                with patch("src.extraction.recalls.DATE_END", "2019-12-31"):
-                    extractor = RecallExtractor.__new__(RecallExtractor)
-                    extractor.client = mock_client
-                    extractor.output_dir = output_dir
-                    extractor.output_dir.mkdir(parents=True, exist_ok=True)
-                    extractor._progress_file = output_dir / "_progress.json"
+        result = extractor.extract()
 
-                    result = extractor.extract()
-
-        assert result["total_records"] == 1
-        assert "2019" in result["years"]
-        assert (output_dir / "2019" / "recalls_2019.json").exists()
-
-    def test_auto_quarter_split_on_large_year(self, mock_client, tmp_path):
-        """Should split into quarters when a year exceeds threshold."""
-        # First call (year-level) returns too many
-        # Subsequent calls (quarter-level) return manageable counts
-        mock_client.fetch_count.side_effect = [26000, 6000, 7000, 6500, 6500]
-        mock_client.fetch_all_pages.side_effect = [
-            [{"id": i} for i in range(6000)],
-            [{"id": i} for i in range(7000)],
-            [{"id": i} for i in range(6500)],
-            [{"id": i} for i in range(6500)],
-        ]
-
-        output_dir = tmp_path / "recalls"
-
-        with patch("src.extraction.recalls.DATE_START", "2019-01-01"):
-            with patch("src.extraction.recalls.DATE_END", "2019-12-31"):
-                extractor = RecallExtractor.__new__(RecallExtractor)
-                extractor.client = mock_client
-                extractor.output_dir = output_dir
-                extractor.output_dir.mkdir(parents=True, exist_ok=True)
-                extractor._progress_file = output_dir / "_progress.json"
-
-                result = extractor.extract()
-
-        assert result["total_records"] == 26000
+        assert result["total_records"] == 2
+        # Verify no date range in search params
+        call_params = fda_client._session.get.call_args[1]["params"]
+        assert "report_date" not in call_params.get("search", "")
 
 
 class TestClearanceExtractor:
-    def test_year_partitioning(self, mock_client, tmp_path):
-        """Should extract clearances for each year."""
-        mock_client.fetch_count.return_value = 200
-        mock_client.fetch_all_pages.return_value = [{"k_number": "K190001"}]
+    def test_clearance_extractor_small_dataset_fetches_all(self, tmp_path, fda_client, sample_api_response):
+        """ClearanceExtractor should fetch all at once if total <= 26K."""
+        fda_client._session.get.return_value = _mock_response(
+            200,
+            sample_api_response(
+                total=500,
+                results=[{"k_number": "K201234", "decision_date": "2020-06-15"}],
+            ),
+        )
 
-        output_dir = tmp_path / "clearances"
+        extractor = ClearanceExtractor(client=fda_client)
+        extractor.output_dir = tmp_path / "clearances"
+        extractor.output_dir.mkdir()
+        extractor._progress_file = extractor.output_dir / "_progress.json"
 
-        with patch("src.extraction.clearances.DATE_START", "2019-01-01"):
-            with patch("src.extraction.clearances.DATE_END", "2019-12-31"):
-                extractor = ClearanceExtractor.__new__(ClearanceExtractor)
-                extractor.client = mock_client
-                extractor.output_dir = output_dir
-                extractor.output_dir.mkdir(parents=True, exist_ok=True)
-                extractor._progress_file = output_dir / "_progress.json"
+        result = extractor.extract()
 
-                result = extractor.extract()
+        assert result["total_records"] >= 1
+        call_params = fda_client._session.get.call_args[1]["params"]
+        assert "decision_date" not in call_params.get("search", "")
 
-        assert result["total_records"] == 1
-        assert (output_dir / "2019" / "clearances_2019.json").exists()
+    def test_clearance_extractor_large_dataset_partitions_by_committee(self, tmp_path, fda_client, sample_api_response):
+        """ClearanceExtractor should partition by advisory_committee if > 26K."""
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            params = kwargs.get("params", {})
+
+            # Count-by query
+            if "count" in params:
+                return _mock_response(
+                    200,
+                    {"results": [{"term": "SU", "count": 5000}, {"term": "CV", "count": 3000}]},
+                )
+            # Initial count query returns > 26K
+            if params.get("limit") == 1:
+                return _mock_response(200, sample_api_response(total=30000, results=[]))
+
+            # Partition fetches
+            return _mock_response(
+                200,
+                sample_api_response(
+                    total=5000,
+                    results=[{"k_number": f"K20{call_count}", "advisory_committee": "SU"}],
+                ),
+            )
+
+        fda_client._session.get.side_effect = side_effect
+
+        extractor = ClearanceExtractor(client=fda_client)
+        extractor.output_dir = tmp_path / "clearances"
+        extractor.output_dir.mkdir()
+        extractor._progress_file = extractor.output_dir / "_progress.json"
+
+        result = extractor.extract()
+
+        assert result["total_records"] >= 1
 
 
 class TestAdverseEventExtractor:
