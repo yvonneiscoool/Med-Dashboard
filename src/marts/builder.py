@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from src.config import DATA_CLEAN, DATA_MART
+from src.config import ANALYSIS_YEAR_MAX, ANALYSIS_YEAR_MIN, DATA_CLEAN, DATA_MART
 from src.marts.kpis import (
     events_per_100_clearances,
     recall_to_event_ratio,
@@ -36,13 +36,24 @@ def _register_views(
     con: duckdb.DuckDBPyConnection,
     events_path: Path,
     recalls_path: Path,
-    clearances_path: Path,
+    clearances_path: Path | None = None,
     dim_product_code_path: Path | None = None,
+    year_min: int | None = None,
+    year_max: int | None = None,
 ) -> None:
-    """Register parquet files as DuckDB views."""
-    con.execute(f"CREATE VIEW events AS SELECT * FROM read_parquet('{events_path}')")
-    con.execute(f"CREATE VIEW recalls AS SELECT * FROM read_parquet('{recalls_path}')")
-    con.execute(f"CREATE VIEW clearances AS SELECT * FROM read_parquet('{clearances_path}')")
+    """Register parquet files as DuckDB views, optionally filtered by year range."""
+    year_filter = year_min is not None and year_max is not None
+
+    evt_where = f" WHERE event_year BETWEEN {year_min} AND {year_max}" if year_filter else ""
+    con.execute(f"CREATE VIEW events AS SELECT * FROM read_parquet('{events_path}'){evt_where}")
+
+    rec_where = f" WHERE recall_year BETWEEN {year_min} AND {year_max}" if year_filter else ""
+    con.execute(f"CREATE VIEW recalls AS SELECT * FROM read_parquet('{recalls_path}'){rec_where}")
+
+    if clearances_path is not None:
+        clr_where = f" WHERE decision_year BETWEEN {year_min} AND {year_max}" if year_filter else ""
+        con.execute(f"CREATE VIEW clearances AS SELECT * FROM read_parquet('{clearances_path}'){clr_where}")
+
     if dim_product_code_path:
         con.execute(f"CREATE VIEW dim_pc AS SELECT * FROM read_parquet('{dim_product_code_path}')")
 
@@ -62,7 +73,15 @@ def build_mart_panel_year(
     output_path = Path(output_path) if output_path else _MART_PANEL_YEAR
 
     con = duckdb.connect()
-    _register_views(con, events_path, recalls_path, clearances_path, dim_product_code_path)
+    _register_views(
+        con,
+        events_path,
+        recalls_path,
+        clearances_path,
+        dim_product_code_path,
+        year_min=ANALYSIS_YEAR_MIN,
+        year_max=ANALYSIS_YEAR_MAX,
+    )
 
     # Events aggregation by review_panel + year
     events_sql = """
@@ -77,6 +96,7 @@ def build_mart_panel_year(
     FROM events e
     JOIN dim_pc d ON e.product_code = d.product_code
     WHERE e.event_year IS NOT NULL
+      AND d.review_panel IS NOT NULL
     GROUP BY d.review_panel, e.event_year
     """
 
@@ -93,6 +113,7 @@ def build_mart_panel_year(
     JOIN dim_pc d ON COALESCE(r.matched_product_code, r.product_code) = d.product_code
     WHERE r.include_in_core_dashboard = true
       AND r.recall_year IS NOT NULL
+      AND d.review_panel IS NOT NULL
     GROUP BY d.review_panel, r.recall_year
     """
 
@@ -105,6 +126,7 @@ def build_mart_panel_year(
     FROM clearances c
     JOIN dim_pc d ON c.product_code = d.product_code
     WHERE c.decision_year IS NOT NULL
+      AND d.review_panel IS NOT NULL
     GROUP BY d.review_panel, c.decision_year
     """
 
@@ -168,7 +190,14 @@ def build_mart_product_code_year(
     output_path = Path(output_path) if output_path else _MART_PC_YEAR
 
     con = duckdb.connect()
-    _register_views(con, events_path, recalls_path, clearances_path)
+    _register_views(
+        con,
+        events_path,
+        recalls_path,
+        clearances_path,
+        year_min=ANALYSIS_YEAR_MIN,
+        year_max=ANALYSIS_YEAR_MAX,
+    )
 
     events_sql = """
     SELECT
@@ -252,9 +281,15 @@ def build_mart_firm_product_year(
     output_path = Path(output_path) if output_path else _MART_FIRM_PRODUCT_YEAR
 
     con = duckdb.connect()
-    con.execute(f"CREATE VIEW events AS SELECT * FROM read_parquet('{events_path}')")
-    con.execute(f"CREATE VIEW recalls AS SELECT * FROM read_parquet('{recalls_path}')")
-    con.execute(f"CREATE VIEW dim_pc AS SELECT * FROM read_parquet('{dim_product_code_path}')")
+    _register_views(
+        con,
+        events_path,
+        recalls_path,
+        clearances_path=None,
+        dim_product_code_path=dim_product_code_path,
+        year_min=ANALYSIS_YEAR_MIN,
+        year_max=ANALYSIS_YEAR_MAX,
+    )
 
     events_sql = """
     SELECT
