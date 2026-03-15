@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import DATA_CLEAN, DATA_RAW
+from src.config import DATA_CLEAN, DATA_RAW, DATE_END, DATE_START
 
 _DEFAULT_INPUT_DIR = DATA_RAW / "recalls"
 _DEFAULT_OUTPUT = DATA_CLEAN / "clean_recall.parquet"
@@ -68,6 +68,11 @@ def clean_recalls(
     # Parse dates and recall class
     df = _parse_recall_dates(df)
     df = _parse_recall_class(df)
+
+    # Filter to configured date window
+    start_year = int(DATE_START[:4])
+    end_year = int(DATE_END[:4])
+    df = df[df["recall_year"].between(start_year, end_year)]
 
     # Dedup on recall_number (keep first)
     df = df.drop_duplicates(subset=["recall_number"], keep="first")

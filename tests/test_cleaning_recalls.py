@@ -171,6 +171,52 @@ def test_clean_recalls_end_to_end(tmp_path):
     assert set(df["recall_class"].tolist()) == {"I", "III"}
 
 
+def test_date_window_filters_out_of_range_records(tmp_path):
+    """Records outside the 2019-2025 window should be excluded."""
+    records = [
+        {
+            "recall_number": "Z-0001-2018",
+            "recall_initiation_date": "20180315",
+            "classification": "Class I",
+            "product_description": "Old device",
+            "recalling_firm": "ACME",
+            "reason_for_recall": "Defect",
+            "status": "Terminated",
+            "voluntary_mandated": "Voluntary",
+            "openfda": {"product_code": ["ABC"]},
+        },
+        {
+            "recall_number": "Z-0002-2020",
+            "recall_initiation_date": "20200601",
+            "classification": "Class II",
+            "product_description": "Current device",
+            "recalling_firm": "ACME",
+            "reason_for_recall": "Defect",
+            "status": "Ongoing",
+            "voluntary_mandated": "Voluntary",
+            "openfda": {"product_code": ["DEF"]},
+        },
+        {
+            "recall_number": "Z-0003-2026",
+            "recall_initiation_date": "20260115",
+            "classification": "Class III",
+            "product_description": "Future device",
+            "recalling_firm": "ACME",
+            "reason_for_recall": "Defect",
+            "status": "Ongoing",
+            "voluntary_mandated": "Voluntary",
+            "openfda": {"product_code": ["GHI"]},
+        },
+    ]
+    input_dir = tmp_path / "recalls" / "all"
+    input_dir.mkdir(parents=True)
+    (input_dir / "recalls_all.json").write_text(json.dumps(records))
+    output_path = tmp_path / "clean_recall.parquet"
+    df = clean_recalls(input_dir=tmp_path / "recalls", output_path=output_path)
+    assert len(df) == 1
+    assert df.iloc[0]["recall_number"] == "Z-0002-2020"
+
+
 def test_clean_recalls_empty(tmp_path):
     """Empty input produces empty parquet with correct schema."""
     input_dir = tmp_path / "empty"
