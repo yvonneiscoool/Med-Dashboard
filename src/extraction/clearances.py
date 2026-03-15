@@ -35,13 +35,16 @@ class ClearanceExtractor(BaseExtractor):
 
     def _extract_by_committee(self) -> list[dict]:
         """Partition by advisory_committee when total exceeds 26K."""
-        committees = self.client.fetch_count_by(ENDPOINT_510K, field="advisory_committee")
+        committees = self.client.fetch_count_by(ENDPOINT_510K, field="advisory_committee.exact")
         logger.info("Found %d advisory committees for partitioning", len(committees))
 
         all_results = []
         for entry in committees:
             term = entry["term"]
             count = entry["count"]
+            if not term:
+                logger.info("Skipping %d records with empty advisory_committee", count)
+                continue
             logger.info("Committee %s: %d records", term, count)
 
             search = f'advisory_committee:"{term}"'
