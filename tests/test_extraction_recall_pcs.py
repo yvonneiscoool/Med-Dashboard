@@ -60,8 +60,8 @@ class TestRecallProductCodeExtractor:
         # verified by the fact that the mock session.get was never invoked
         fda_client._session.get.assert_not_called()
 
-    def test_partitions_by_status_when_large(self, tmp_path, fda_client, sample_api_response):
-        """Should partition by recall_status if total exceeds 26K."""
+    def test_partitions_by_product_code_when_large(self, tmp_path, fda_client, sample_api_response):
+        """Should partition by product_code if total exceeds 26K."""
         call_count = 0
 
         def side_effect(*args, **kwargs):
@@ -69,14 +69,14 @@ class TestRecallProductCodeExtractor:
             call_count += 1
             params = kwargs.get("params", {})
 
-            # Count-by query
+            # Count-by query for product_code
             if "count" in params:
                 return _mock_response(
                     200,
                     {
                         "results": [
-                            {"term": "Terminated", "count": 15000},
-                            {"term": "Ongoing", "count": 12000},
+                            {"term": "DXN", "count": 500},
+                            {"term": "FRN", "count": 300},
                         ]
                     },
                 )
@@ -88,7 +88,7 @@ class TestRecallProductCodeExtractor:
             return _mock_response(
                 200,
                 sample_api_response(
-                    total=15000,
+                    total=500,
                     results=[
                         {
                             "product_res_number": f"Z-{call_count:04d}-2023",

@@ -33,22 +33,44 @@ class RecallProductCodeExtractor(BaseExtractor):
             progress_file=self.output_dir / label / "_page_progress.json",
         )
 
-    def _extract_by_status(self) -> list[dict]:
-        """Partition by recall_status when total exceeds 26K."""
-        statuses = self.client.fetch_count_by(
+    def _extract_by_product_code(self) -> list[dict]:
+        """Partition by product_code when total exceeds 26K.
+
+        The /device/recall.json endpoint doesn't support compound AND queries,
+        so we partition by product_code (max ~1K per bucket). The count-by API
+        returns only the top 1000 product codes, which covers ~92% of records.
+        Remaining records (with rare product codes) are in long-tail partitions
+        that can't be fetched individually but are acceptable to miss since we
+        only need the lookup for enrichment (not completeness).
+        """
+        product_codes = self.client.fetch_count_by(
             ENDPOINT_DEVICE_RECALL,
-            field="recall_status.exact",
+            field="product_code",
         )
-        logger.info("Found %d recall_status values for partitioning", len(statuses))
+        logger.info(
+            "Found %d product_code values for partitioning (top 1000)",
+            len(product_codes),
+        )
 
         all_results = []
-        for entry in statuses:
-            term = entry["term"]
-            count = entry["count"]
-            logger.info("Status '%s': %d records", term, count)
-            search = f'recall_status:"{term}"'
-            results = self._fetch_partition(search, f"status_{term.replace(' ', '_')}")
+        for i, entry in enumerate(product_codes):
+            pc = entry["term"]
+            if i % 100 == 0:
+                logger.info(
+                    "Progress: %d/%d product codes, %d records so far",
+                    i,
+                    len(product_codes),
+                    len(all_results),
+                )
+            search = f'product_code:"{pc}"'
+            results = self._fetch_partition(search, f"pc_{pc}")
             all_results.extend(results)
+
+        logger.info(
+            "Fetched %d records across %d product code partitions",
+            len(all_results),
+            len(product_codes),
+        )
         return all_results
 
     def extract(self) -> dict:
@@ -66,8 +88,8 @@ class RecallProductCodeExtractor(BaseExtractor):
         logger.info("Total device recalls (/device/recall.json): %d records", count)
 
         if count > MAX_SINGLE_QUERY:
-            logger.info("Total exceeds %d, partitioning by recall_status", MAX_SINGLE_QUERY)
-            results = self._extract_by_status()
+            logger.info("Total exceeds %d, partitioning by product_code", MAX_SINGLE_QUERY)
+            results = self._extract_by_product_code()
         else:
             results = self._fetch_partition("", "all")
 
