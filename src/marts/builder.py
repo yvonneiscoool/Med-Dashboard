@@ -106,9 +106,9 @@ def build_mart_panel_year(
         d.review_panel,
         r.recall_year AS year,
         COUNT(*) AS recall_count,
-        COUNT(*) FILTER (WHERE r.recall_class = 'Class I') AS class_i_recall_count,
-        COUNT(*) FILTER (WHERE r.recall_class = 'Class II') AS class_ii_recall_count,
-        COUNT(*) FILTER (WHERE r.recall_class = 'Class III') AS class_iii_recall_count
+        COUNT(*) FILTER (WHERE r.recall_class = 'I') AS class_i_recall_count,
+        COUNT(*) FILTER (WHERE r.recall_class = 'II') AS class_ii_recall_count,
+        COUNT(*) FILTER (WHERE r.recall_class = 'III') AS class_iii_recall_count
     FROM recalls r
     JOIN dim_pc d ON COALESCE(r.matched_product_code, r.product_code) = d.product_code
     WHERE r.include_in_core_dashboard = true
@@ -214,7 +214,7 @@ def build_mart_product_code_year(
         COALESCE(r.matched_product_code, r.product_code) AS product_code,
         r.recall_year AS year,
         COUNT(*) AS recall_count,
-        COUNT(*) FILTER (WHERE r.recall_class = 'Class I') AS class_i_recall_count
+        COUNT(*) FILTER (WHERE r.recall_class = 'I') AS class_i_recall_count
     FROM recalls r
     WHERE r.include_in_core_dashboard = true
       AND r.recall_year IS NOT NULL
@@ -308,7 +308,7 @@ def build_mart_firm_product_year(
         COALESCE(r.matched_product_code, r.product_code) AS product_code,
         r.recall_year AS year,
         COUNT(*) AS recall_count,
-        COUNT(*) FILTER (WHERE r.recall_class = 'Class I') AS severe_recall_count
+        COUNT(*) FILTER (WHERE r.recall_class = 'I') AS severe_recall_count
     FROM recalls r
     WHERE r.include_in_core_dashboard = true
       AND r.recall_year IS NOT NULL
