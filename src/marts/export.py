@@ -51,6 +51,8 @@ def export_app_category_product(
     output_path = Path(output_path) if output_path else DATA_APP / "app_category_product.csv"
 
     df = pd.read_parquet(mart_path)
+    # Filter out junk product codes (e.g. "-", "---")
+    df = df[~df["product_code"].str.fullmatch(r"-+", na=False)]
     dim = pd.read_parquet(
         dim_path,
         columns=[
