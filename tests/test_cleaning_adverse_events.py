@@ -184,6 +184,74 @@ def test_outcomes_string_outcome():
     assert df.iloc[0]["has_death"]
 
 
+def test_outcomes_death_full_text():
+    """Real-world data uses 'Death' (full text) for death outcome."""
+    records = [_make_record(patients=[{"sequence_number_outcome": ["Death"]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_death"]
+    assert df.iloc[0]["has_serious_injury"] == False  # noqa: E712
+
+
+def test_outcomes_death_space_prefixed():
+    """Real-world data uses ' D' (space-prefixed code) for death outcome."""
+    records = [_make_record(patients=[{"sequence_number_outcome": [" D"]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_death"]
+
+
+def test_outcomes_serious_injury_full_text():
+    """Real-world data uses full text like 'Hospitalization', 'Life Threatening'."""
+    records = [_make_record(patients=[{"sequence_number_outcome": ["Hospitalization", "Life Threatening"]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_serious_injury"]
+    assert df.iloc[0]["has_death"] == False  # noqa: E712
+
+
+def test_outcomes_serious_injury_space_prefixed():
+    """Real-world data uses ' H', ' L', ' S' (space-prefixed codes)."""
+    records = [_make_record(patients=[{"sequence_number_outcome": [" H"]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_serious_injury"]
+
+
+def test_outcomes_mixed_formats():
+    """Mix of full-text and code formats in one record."""
+    records = [
+        _make_record(
+            patients=[
+                {"sequence_number_outcome": ["Death"]},
+                {"sequence_number_outcome": [" L", "Other"]},
+            ]
+        )
+    ]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_death"]
+    assert df.iloc[0]["has_serious_injury"]
+
+
+def test_outcomes_disability_maps_to_serious():
+    """'Disability' and 'Congenital Anomaly' map to serious injury (code S)."""
+    records = [_make_record(patients=[{"sequence_number_outcome": ["Disability"]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_serious_injury"]
+
+
+def test_outcomes_required_intervention_not_serious():
+    """'Required Intervention' is non-serious — should not set either flag."""
+    records = [_make_record(patients=[{"sequence_number_outcome": ["Required Intervention"]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_death"] == False  # noqa: E712
+    assert df.iloc[0]["has_serious_injury"] == False  # noqa: E712
+
+
+def test_outcomes_empty_string_ignored():
+    """Empty string outcomes (most common in real data) should not trigger flags."""
+    records = [_make_record(patients=[{"sequence_number_outcome": [""]}])]
+    df = _aggregate_patient_outcomes(records)
+    assert df.iloc[0]["has_death"] == False  # noqa: E712
+    assert df.iloc[0]["has_serious_injury"] == False  # noqa: E712
+
+
 # ── _normalize_dates ─────────────────────────────────────────────────────────
 
 
