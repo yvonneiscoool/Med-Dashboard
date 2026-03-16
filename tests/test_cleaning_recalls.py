@@ -217,6 +217,146 @@ def test_date_window_filters_out_of_range_records(tmp_path):
     assert df.iloc[0]["recall_number"] == "Z-0002-2020"
 
 
+# ── product_code enrichment ───────────────────────────────────────────────
+
+
+def test_product_code_enriched_from_recall_lookup(tmp_path):
+    """Product code should be populated from recall API lookup when openfda is empty."""
+    enforcement_records = [
+        {
+            "recall_number": "Z-0001-2023",
+            "recall_initiation_date": "20230115",
+            "classification": "Class II",
+            "product_description": "Test Device Alpha",
+            "recalling_firm": "ACME MEDICAL",
+            "reason_for_recall": "Defect found",
+            "status": "Ongoing",
+            "voluntary_mandated": "Voluntary: Firm Initiated",
+            "openfda": {},
+        },
+        {
+            "recall_number": "Z-0002-2023",
+            "recall_initiation_date": "20230601",
+            "classification": "Class I",
+            "product_description": "Test Device Beta",
+            "recalling_firm": "BETA CORP",
+            "reason_for_recall": "Safety issue",
+            "status": "Terminated",
+            "voluntary_mandated": "Voluntary: Firm Initiated",
+            "openfda": {},
+        },
+    ]
+
+    recall_lookup = [
+        {"product_res_number": "Z-0001-2023", "product_code": "DXN"},
+        {"product_res_number": "Z-0002-2023", "product_code": "FRN"},
+        {"product_res_number": "Z-9999-2023", "product_code": "ABC"},
+    ]
+
+    enf_dir = tmp_path / "recalls" / "all"
+    enf_dir.mkdir(parents=True)
+    (enf_dir / "recalls_all.json").write_text(json.dumps(enforcement_records))
+
+    lookup_dir = tmp_path / "recall_product_codes" / "all"
+    lookup_dir.mkdir(parents=True)
+    (lookup_dir / "recall_product_codes_all.json").write_text(json.dumps(recall_lookup))
+
+    output = tmp_path / "clean_recall.parquet"
+    df = clean_recalls(
+        input_dir=tmp_path / "recalls",
+        output_path=output,
+        recall_pc_dir=tmp_path / "recall_product_codes",
+    )
+
+    assert len(df) == 2
+    assert df.loc[df["recall_number"] == "Z-0001-2023", "product_code"].iloc[0] == "DXN"
+    assert df.loc[df["recall_number"] == "Z-0002-2023", "product_code"].iloc[0] == "FRN"
+
+
+def test_product_code_from_openfda_not_overwritten(tmp_path):
+    """If openfda already has a product_code, it should NOT be overwritten by lookup."""
+    enforcement_records = [
+        {
+            "recall_number": "Z-0001-2023",
+            "recall_initiation_date": "20230115",
+            "classification": "Class II",
+            "product_description": "Test Device",
+            "recalling_firm": "ACME",
+            "reason_for_recall": "Defect",
+            "status": "Ongoing",
+            "voluntary_mandated": "Voluntary",
+            "openfda": {"product_code": ["ORIG"]},
+        },
+    ]
+    recall_lookup = [
+        {"product_res_number": "Z-0001-2023", "product_code": "NEW"},
+    ]
+
+    enf_dir = tmp_path / "recalls" / "all"
+    enf_dir.mkdir(parents=True)
+    (enf_dir / "recalls_all.json").write_text(json.dumps(enforcement_records))
+
+    lookup_dir = tmp_path / "recall_product_codes" / "all"
+    lookup_dir.mkdir(parents=True)
+    (lookup_dir / "recall_product_codes_all.json").write_text(json.dumps(recall_lookup))
+
+    output = tmp_path / "clean_recall.parquet"
+    df = clean_recalls(
+        input_dir=tmp_path / "recalls",
+        output_path=output,
+        recall_pc_dir=tmp_path / "recall_product_codes",
+    )
+
+    assert df.iloc[0]["product_code"] == "ORIG"
+
+
+def test_product_code_trailing_dashes_stripped(tmp_path):
+    """Product codes with trailing dashes should be cleaned."""
+    enforcement_records = [
+        {
+            "recall_number": "Z-0001-2023",
+            "recall_initiation_date": "20230115",
+            "classification": "Class II",
+            "product_description": "X-Ray System",
+            "recalling_firm": "ACME",
+            "reason_for_recall": "Defect",
+            "status": "Ongoing",
+            "voluntary_mandated": "Voluntary",
+            "openfda": {},
+        },
+    ]
+    recall_lookup = [
+        {"product_res_number": "Z-0001-2023", "product_code": "IZL--"},
+    ]
+
+    enf_dir = tmp_path / "recalls" / "all"
+    enf_dir.mkdir(parents=True)
+    (enf_dir / "recalls_all.json").write_text(json.dumps(enforcement_records))
+
+    lookup_dir = tmp_path / "recall_product_codes" / "all"
+    lookup_dir.mkdir(parents=True)
+    (lookup_dir / "recall_product_codes_all.json").write_text(json.dumps(recall_lookup))
+
+    output = tmp_path / "clean_recall.parquet"
+    df = clean_recalls(
+        input_dir=tmp_path / "recalls",
+        output_path=output,
+        recall_pc_dir=tmp_path / "recall_product_codes",
+    )
+
+    assert df.iloc[0]["product_code"] == "IZL"
+
+
+def test_clean_recalls_works_without_lookup_dir(tmp_path):
+    """clean_recalls should still work if recall_pc_dir is not provided or missing."""
+    records = [_make_recall_record(recall_number="R1", product_code=None)]
+    _write_json(tmp_path, records)
+    output = tmp_path / "clean_recall.parquet"
+    df = clean_recalls(input_dir=tmp_path, output_path=output)
+    assert len(df) == 1
+    assert pd.isna(df.iloc[0]["product_code"])
+
+
 def test_clean_recalls_empty(tmp_path):
     """Empty input produces empty parquet with correct schema."""
     input_dir = tmp_path / "empty"

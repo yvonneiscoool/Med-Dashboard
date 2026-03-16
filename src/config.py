@@ -21,6 +21,7 @@ FDA_API_KEY = os.getenv("FDA_API_KEY")
 ENDPOINT_ADVERSE_EVENTS = "/device/event.json"
 ENDPOINT_CLASSIFICATION = "/device/classification.json"
 ENDPOINT_RECALL = "/device/enforcement.json"
+ENDPOINT_DEVICE_RECALL = "/device/recall.json"
 ENDPOINT_510K = "/device/510k.json"
 
 # ── Time window ────────────────────────────────────────────────────────────────
