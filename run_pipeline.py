@@ -1,7 +1,6 @@
 """Run the full FDA Medical Device pipeline: extraction → cleaning → mapping → marts → app CSVs."""
 
 import logging
-import sys
 import time
 
 logging.basicConfig(

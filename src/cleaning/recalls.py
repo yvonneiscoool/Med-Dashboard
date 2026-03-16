@@ -40,6 +40,7 @@ def clean_recalls(
     Args:
         input_dir: Directory containing year subdirs with recall JSON files.
         output_path: Path to write parquet. Defaults to standard location.
+        recall_pc_dir: Directory with /device/recall.json product code lookup data.
 
     Returns:
         Cleaned DataFrame with one row per unique recall.

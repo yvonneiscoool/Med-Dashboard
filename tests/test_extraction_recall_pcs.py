@@ -107,4 +107,4 @@ class TestRecallProductCodeExtractor:
 
         result = extractor.extract()
 
-        assert result["total_records"] >= 1
+        assert result["total_records"] == 2

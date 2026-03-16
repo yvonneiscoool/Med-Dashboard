@@ -76,7 +76,7 @@ class RecallProductCodeExtractor(BaseExtractor):
     def extract(self) -> dict:
         """Fetch all device recall records for product code lookup.
 
-        Automatically partitions by recall_status if total > 26K.
+        Automatically partitions by product_code if total > 26K.
         """
         progress = self._load_progress()
 
@@ -91,7 +91,7 @@ class RecallProductCodeExtractor(BaseExtractor):
             logger.info("Total exceeds %d, partitioning by product_code", MAX_SINGLE_QUERY)
             results = self._extract_by_product_code()
         else:
-            results = self._fetch_partition("", "all")
+            results = self._fetch_partition(None, "all")
 
         # Save combined output
         all_dir = self.output_dir / "all"
