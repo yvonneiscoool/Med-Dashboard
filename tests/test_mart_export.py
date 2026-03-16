@@ -132,6 +132,23 @@ class TestExportOverview:
         assert "review_panel" in df.columns
         assert "events_per_100_clearances" in df.columns
 
+    def test_empty_panel_labeled(self, built_data):
+        """Empty review_panel values should be labeled 'Unknown'."""
+        mart_path = built_data["mart_dir"] / "mart_panel_year.parquet"
+        df = pd.read_parquet(mart_path)
+        blank = pd.DataFrame({col: [df[col].iloc[0]] for col in df.columns})
+        blank["review_panel"] = ""
+        df = pd.concat([df, blank], ignore_index=True)
+        df.to_parquet(mart_path, index=False)
+
+        result = export_app_overview(
+            mart_panel_year_path=mart_path,
+            output_path=built_data["app_dir"] / "app_overview.csv",
+        )
+        empty = result[result["review_panel"].fillna("").str.strip() == ""]
+        assert len(empty) == 0, "Empty review_panel values should be 'Unknown'"
+        assert "Unknown" in result["review_panel"].values
+
 
 class TestExportCategoryProduct:
     def test_csv_created(self, built_data):
@@ -153,6 +170,23 @@ class TestExportCategoryProduct:
         assert "review_panel" in df.columns
         assert "medical_specialty_description" in df.columns
 
+    def test_excludes_junk_product_codes(self, built_data):
+        """Junk codes like '-' and '---' must not appear in export."""
+        mart_path = built_data["mart_dir"] / "mart_product_code_year.parquet"
+        df = pd.read_parquet(mart_path)
+        junk = pd.DataFrame({col: [df[col].iloc[0]] for col in df.columns})
+        junk["product_code"] = "---"
+        df = pd.concat([df, junk], ignore_index=True)
+        df.to_parquet(mart_path, index=False)
+
+        result = export_app_category_product(
+            mart_pc_year_path=mart_path,
+            dim_product_code_path=built_data["clean_dir"] / "dim_product_code.parquet",
+            output_path=built_data["app_dir"] / "app_category_product.csv",
+        )
+        bad_codes = result[result["product_code"].str.fullmatch(r"-+")]
+        assert len(bad_codes) == 0, f"Junk product codes found: {bad_codes['product_code'].unique()}"
+
 
 class TestExportManufacturer:
     def test_csv_created(self, built_data):
@@ -172,6 +206,24 @@ class TestExportManufacturer:
         )
         assert "device_name" in df.columns
         assert "review_panel" in df.columns
+
+    def test_empty_manufacturer_filled(self, built_data):
+        """Empty manufacturer strings should be replaced with 'Unknown'."""
+        mart_path = built_data["mart_dir"] / "mart_firm_product_year.parquet"
+        df = pd.read_parquet(mart_path)
+        blank = pd.DataFrame({col: [df[col].iloc[0]] for col in df.columns})
+        blank["manufacturer"] = ""
+        df = pd.concat([df, blank], ignore_index=True)
+        df.to_parquet(mart_path, index=False)
+
+        result = export_app_manufacturer(
+            mart_firm_product_year_path=mart_path,
+            dim_product_code_path=built_data["clean_dir"] / "dim_product_code.parquet",
+            output_path=built_data["app_dir"] / "app_manufacturer.csv",
+        )
+        empty = result[result["manufacturer"].fillna("").str.strip() == ""]
+        assert len(empty) == 0, "Empty manufacturer strings should be 'Unknown'"
+        assert "Unknown" in result["manufacturer"].values
 
 
 class TestExportMethodology:

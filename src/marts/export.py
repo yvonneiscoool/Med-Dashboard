@@ -33,6 +33,9 @@ def export_app_overview(
     output_path = Path(output_path) if output_path else DATA_APP / "app_overview.csv"
 
     df = pd.read_parquet(mart_path)
+    # Label empty/missing review_panel as "Unknown"
+    df["review_panel"] = df["review_panel"].fillna("").str.strip()
+    df.loc[df["review_panel"] == "", "review_panel"] = "Unknown"
     df = df.sort_values(["review_panel", "year"]).reset_index(drop=True)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -51,6 +54,8 @@ def export_app_category_product(
     output_path = Path(output_path) if output_path else DATA_APP / "app_category_product.csv"
 
     df = pd.read_parquet(mart_path)
+    # Filter out junk product codes (e.g. "-", "---")
+    df = df[~df["product_code"].str.fullmatch(r"-+", na=False)]
     dim = pd.read_parquet(
         dim_path,
         columns=[
@@ -85,6 +90,9 @@ def export_app_manufacturer(
     output_path = Path(output_path) if output_path else DATA_APP / "app_manufacturer.csv"
 
     df = pd.read_parquet(mart_path)
+    # Replace empty/missing manufacturer with "Unknown"
+    df["manufacturer"] = df["manufacturer"].fillna("").str.strip()
+    df.loc[df["manufacturer"] == "", "manufacturer"] = "Unknown"
     dim = pd.read_parquet(dim_path, columns=["product_code", "device_name", "review_panel"])
     df = df.merge(dim, on="product_code", how="left")
 
