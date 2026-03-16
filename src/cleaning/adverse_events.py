@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 _DEFAULT_INPUT_DIR = DATA_RAW / "adverse_events" / "bulk"
 _DEFAULT_OUTPUT = DATA_CLEAN / "clean_event_device_level.parquet"
 
+# Map full-text outcome descriptions to canonical single-letter codes.
+# Raw openFDA data uses a mix of codes (" D", " H") and full text ("Death").
+_OUTCOME_TEXT_TO_CODE = {
+    "death": "D",
+    "life threatening": "L",
+    "hospitalization": "H",
+    "disability": "S",
+    "congenital anomaly": "S",
+    "required intervention": "R",
+    "other": "O",
+}
+
+
 def clean_adverse_events(
     input_dir: str | Path | None = None,
     output_path: str | Path | None = None,
@@ -186,6 +199,14 @@ def _flatten_devices(records: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _normalize_outcome(raw: str) -> str:
+    """Normalize an outcome string to its canonical single-letter code."""
+    stripped = raw.strip()
+    if len(stripped) <= 1:
+        return stripped.upper()
+    return _OUTCOME_TEXT_TO_CODE.get(stripped.lower(), stripped)
+
+
 def _aggregate_patient_outcomes(records: list[dict]) -> pd.DataFrame:
     """Aggregate patient outcomes per report into death/serious-injury flags."""
     rows = []
@@ -204,9 +225,10 @@ def _aggregate_patient_outcomes(records: list[dict]) -> pd.DataFrame:
                 if isinstance(outcomes, str):
                     outcomes = [outcomes]
                 for outcome in outcomes:
-                    if outcome in OUTCOME_DEATH:
+                    code = _normalize_outcome(outcome)
+                    if code in OUTCOME_DEATH:
                         has_death = True
-                    if outcome in OUTCOME_SERIOUS_INJURY:
+                    if code in OUTCOME_SERIOUS_INJURY:
                         has_serious = True
 
         rows.append(
