@@ -132,7 +132,6 @@ class TestExportOverview:
         assert "review_panel" in df.columns
         assert "events_per_100_clearances" in df.columns
 
-
     def test_empty_panel_labeled(self, built_data):
         """Empty review_panel values should be labeled 'Unknown'."""
         mart_path = built_data["mart_dir"] / "mart_panel_year.parquet"
@@ -171,7 +170,6 @@ class TestExportCategoryProduct:
         assert "review_panel" in df.columns
         assert "medical_specialty_description" in df.columns
 
-
     def test_excludes_junk_product_codes(self, built_data):
         """Junk codes like '-' and '---' must not appear in export."""
         mart_path = built_data["mart_dir"] / "mart_product_code_year.parquet"
@@ -208,7 +206,6 @@ class TestExportManufacturer:
         )
         assert "device_name" in df.columns
         assert "review_panel" in df.columns
-
 
     def test_empty_manufacturer_filled(self, built_data):
         """Empty manufacturer strings should be replaced with 'Unknown'."""
