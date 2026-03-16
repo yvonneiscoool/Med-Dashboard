@@ -192,6 +192,25 @@ class TestExportManufacturer:
         assert "review_panel" in df.columns
 
 
+    def test_empty_manufacturer_filled(self, built_data):
+        """Empty manufacturer strings should be replaced with 'Unknown'."""
+        mart_path = built_data["mart_dir"] / "mart_firm_product_year.parquet"
+        df = pd.read_parquet(mart_path)
+        blank = pd.DataFrame({col: [df[col].iloc[0]] for col in df.columns})
+        blank["manufacturer"] = ""
+        df = pd.concat([df, blank], ignore_index=True)
+        df.to_parquet(mart_path, index=False)
+
+        result = export_app_manufacturer(
+            mart_firm_product_year_path=mart_path,
+            dim_product_code_path=built_data["clean_dir"] / "dim_product_code.parquet",
+            output_path=built_data["app_dir"] / "app_manufacturer.csv",
+        )
+        empty = result[result["manufacturer"].fillna("").str.strip() == ""]
+        assert len(empty) == 0, "Empty manufacturer strings should be 'Unknown'"
+        assert "Unknown" in result["manufacturer"].values
+
+
 class TestExportMethodology:
     def test_csv_created(self, built_data):
         out = built_data["app_dir"] / "app_methodology.csv"

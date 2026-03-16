@@ -87,6 +87,9 @@ def export_app_manufacturer(
     output_path = Path(output_path) if output_path else DATA_APP / "app_manufacturer.csv"
 
     df = pd.read_parquet(mart_path)
+    # Replace empty/missing manufacturer with "Unknown"
+    df["manufacturer"] = df["manufacturer"].fillna("").str.strip()
+    df.loc[df["manufacturer"] == "", "manufacturer"] = "Unknown"
     dim = pd.read_parquet(dim_path, columns=["product_code", "device_name", "review_panel"])
     df = df.merge(dim, on="product_code", how="left")
 
