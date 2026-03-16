@@ -133,6 +133,24 @@ class TestExportOverview:
         assert "events_per_100_clearances" in df.columns
 
 
+    def test_empty_panel_labeled(self, built_data):
+        """Empty review_panel values should be labeled 'Unknown'."""
+        mart_path = built_data["mart_dir"] / "mart_panel_year.parquet"
+        df = pd.read_parquet(mart_path)
+        blank = pd.DataFrame({col: [df[col].iloc[0]] for col in df.columns})
+        blank["review_panel"] = ""
+        df = pd.concat([df, blank], ignore_index=True)
+        df.to_parquet(mart_path, index=False)
+
+        result = export_app_overview(
+            mart_panel_year_path=mart_path,
+            output_path=built_data["app_dir"] / "app_overview.csv",
+        )
+        empty = result[result["review_panel"].fillna("").str.strip() == ""]
+        assert len(empty) == 0, "Empty review_panel values should be 'Unknown'"
+        assert "Unknown" in result["review_panel"].values
+
+
 class TestExportCategoryProduct:
     def test_csv_created(self, built_data):
         out = built_data["app_dir"] / "app_category_product.csv"

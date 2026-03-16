@@ -33,6 +33,9 @@ def export_app_overview(
     output_path = Path(output_path) if output_path else DATA_APP / "app_overview.csv"
 
     df = pd.read_parquet(mart_path)
+    # Label empty/missing review_panel as "Unknown"
+    df["review_panel"] = df["review_panel"].fillna("").str.strip()
+    df.loc[df["review_panel"] == "", "review_panel"] = "Unknown"
     df = df.sort_values(["review_panel", "year"]).reset_index(drop=True)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
