@@ -1,9 +1,10 @@
 # U.S. Medical Device Regulatory Risk Intelligence Dashboard
 
 An interactive business intelligence dashboard that integrates public FDA adverse event, recall, classification, and 510(k) clearance data to identify medical device categories, product codes, and manufacturers with higher observable post-market regulatory exposure.
+Results are published [here](https://public.tableau.com/app/profile/yvonne.yuan8419/viz/U_S_MedicalDeviceRegulatoryRiskIntelligenceDashboard/PanelRankingChart/).
 
-<!-- TODO: Add dashboard screenshot after Tableau workbook is built -->
-<!-- ![Dashboard Preview](docs/screenshots/executive_overview.png) -->
+
+![Dashboard Preview](docs/screenshots/executive_overview.png)
 
 ## Business Questions
 
